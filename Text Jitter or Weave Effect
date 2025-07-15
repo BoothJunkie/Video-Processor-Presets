@@ -1,0 +1,99 @@
+// BJ:  Text Jitter or Weave
+//forked from JT: Essential Text overlay
+
+// Text content and font
+text="Your \ntext \nhere"; //add "/n" or span multiple lines within quotes if needed:"
+font="Arial"; // enter the name of the font exactly as named in your font picklist
+
+// Text parameters
+//@param1:size 'Text height' 0.1 0.01 0.3 0.1 0.01
+//@param2:xpos 'X position' 0.5 -0.5 1.5 0.5 0.01
+//@param3:ypos 'Y position' 0.5 -0.5 1.5 0.5 0.01
+
+// Text color and opacity
+//@param5:txtr 'Text R' 1 0 1 0.5 0.01
+//@param6:txtg 'Text G' 1 0 1 0.5 0.01
+//@param7:txtb 'Text B' 1 0 1 0.5 0.01
+//@param8:fga 'Text opacity' 1 0 1 0.5 0.01
+
+// Background box color and opacity
+//@param10:border 'BG Size' 0.25 -0.5 15 2 0.25
+//@param11:bgred 'BG R' 0 0 1 0.5 0.01
+//@param12:bggreen 'BG G' 0 0 1 0.5 0.01 
+//@param13:bgblue 'BG B' 0 0 1 0.5 0.01 
+//@param14:bga 'BG opacity' 0 0 1 0.5 0.01
+
+// Shake parameters
+//@param16:shake_amt 'Weave Amount (px)' 0 0 50 0 1
+//@param17:shake_dir 'Weave Direction' 1 0 1 0 1 // 0=Vertical only, 1=Both
+//@param18:shake_freq 'Weave Frequency (frames)' 1 1 60 1 1
+//@param19:shake_mode 'Jitter 0 Weave 1' 0 0 1 0 1 // 0=Jitter, 1=Smooth
+
+gfx_blit(0,1);
+
+gfx_setfont(size*project_h,font);
+gfx_str_measure(text,txtw,txth);
+
+// --------------------
+// Persistent jitter fix (detect loop/restart)
+// --------------------
+last_jitter_time >= 0 ? (
+  (project_time < last_jitter_time) ? (
+    // Timeline jumped backward — reset jitter
+    last_jitter_time = project_time;
+    shake_x = (rand() - 0.5) * 2 * shake_amt;
+    shake_y = (rand() - 0.5) * 2 * shake_amt;
+  );
+) : (
+  // First-time init
+  last_jitter_time = project_time;
+  shake_x = (rand() - 0.5) * 2 * shake_amt;
+  shake_y = (rand() - 0.5) * 2 * shake_amt;
+);
+
+// --------------------
+// SHAKE MODE SWITCH
+// --------------------
+shake_mode == 0 ? (
+
+  // --- Jitter mode: update randomly based on time interval
+  refresh_interval = 1 / max(1, shake_freq); // seconds per update
+
+  (project_time - last_jitter_time >= refresh_interval) ? (
+    shake_x = (rand() - 0.5) * 2 * shake_amt;
+    shake_y = (rand() - 0.5) * 2 * shake_amt;
+    last_jitter_time = project_time;
+  );
+
+) : (
+
+  // --- Smooth weave motion using sine wave
+  freq1 = 3.0;
+  freq2 = 3.2;
+  phase = 1.57;
+
+  shake_x = sin(project_time * freq1) * shake_amt;
+  shake_y = sin(project_time * freq2 + phase) * shake_amt;
+);
+
+// --------------------
+// Apply directional shake offsets
+// --------------------
+xoffset = (shake_dir ? shake_x : 0) / project_w;
+yoffset = shake_y / project_h;
+
+// Final positions
+xpos_adj = xpos + xoffset;
+ypos_adj = ypos + yoffset;
+
+// Vertical alignment
+gfx_str_measure(text,txtw,txth);
+yt = (project_h - txth*(1+border*2)) * ypos_adj;
+
+// Background box
+gfx_set(bgred,bggreen,bgblue,bga);
+gfx_fillrect(0, yt, project_w, txth*(1+border*2));
+
+// Text draw
+gfx_set(txtr,txtg,txtb,fga);
+gfx_str_draw(text, xpos_adj * (project_w - txtw), yt + txth * border);

@@ -1,0 +1,211 @@
+// Countdown timer overlay with dual font support
+#text="Going live in "; // prefix text - add "/n" or span multiple lines within quotes if needed, or delete text and just leave empty quotes "
+font_text="Arial";      // // enter the name of the font exactly as named in your font picklist
+font_digits="Arial";  // // enter the name of the font exactly as named in your font picklist
+
+//@param1:size 'text height' 0.05 0.01 0.2 0.1 0.001
+//@param2:ypos 'y position' 0.95 0 1 0.5 0.01
+//@param3:xpos 'x position' 0.5 0 1 0.5 0.01
+//@param4:border 'bg pad' 0.1 0 1 0.5 0.01
+//@param5:fgc 'text bright' 1.0 0 1 0.5 0.01
+//@param6:fga 'text alpha' 1.0 0 1 0.5 0.01
+//@param7:bgc 'bg bright' 0.75 0 1 0.5 0.01
+//@param8:bga 'bg alpha' 0.5 0 1 0.5 0.01
+//@param9:bgfit 'fit bg to text' 0 0 1 0.5 1
+//@param10:ignoreinput 'ignore input' 0 0 1 0.5 1
+
+//@param12:countdown_hours 'countdown hours' 0 0 12 0 1
+//@param13:countdown_mins 'countdown minutes' 5 0 59 5 1
+//@param14:countdown_secs 'countdown seconds' 0 0 59 0 1
+//@param15:start_time 'start time (sec)' 0 0 43200 0 1
+//@param16:flash_rate 'flash rate (Hz)' 2 0.5 10 2 0.1
+//@param17:show_hours 'always show hours' 0 0 1 0.5 1
+//@param18:text_format 'text format' 0 0 1 0.5 1
+
+input = ignoreinput ? -2:0;
+project_wh_valid===0 ? input_info(input,project_w,project_h);
+gfx_a2=0;
+gfx_blit(input,1);
+
+total_countdown = countdown_hours * 3600 + countdown_mins * 60 + countdown_secs;
+elapsed = project_time - start_time;
+remaining = total_countdown - elapsed;
+
+// Handle countdown finished state
+countdown_finished = remaining <= 0;
+
+countdown_finished ? (
+  // Flash effect
+  flash_cycle = sin(project_time * flash_rate * 2 * $pi);
+  flash_visible = flash_cycle > 0;
+  
+  flash_visible ? (
+    current_fga = fga;
+    current_bga = bga;
+  ) : (
+    current_fga = 0.2;
+    current_bga = 0.1;
+  );
+  
+  // Set values to zero for display
+  hours = 0;
+  mins = 0;
+  secs = 0;
+) : (
+  // Normal countdown
+  hours = (remaining/3600)|0;
+  mins = ((remaining%3600)/60)|0;
+  secs = remaining%60;
+  
+  current_fga = fga;
+  current_bga = bga;
+);
+
+// Measure total text width for positioning
+gfx_setfont(size*project_h, font_text);
+gfx_str_measure(#text, prefix_w, prefix_h);
+
+text_format > 0.5 ? (
+  // Text format with dual fonts
+  total_countdown >= 3600 || show_hours > 0.5 ? (
+    sprintf(#hour_num, "%d", hours);
+    sprintf(#min_num, "%d", mins);
+    sprintf(#sec_num, "%d", secs);
+    
+    gfx_str_measure(" hour ", hour_text_w, th);
+    gfx_str_measure(" hours ", hours_text_w, th);
+    gfx_str_measure(" minute ", min_text_w, th);
+    gfx_str_measure(" minutes ", mins_text_w, th);
+    gfx_str_measure(" second ", sec_text_w, th);
+    gfx_str_measure(" seconds ", secs_text_w, th);
+    
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_measure(#hour_num, hour_num_w, th);
+    gfx_str_measure(#min_num, min_num_w, th);
+    gfx_str_measure(#sec_num, sec_num_w, th);
+    
+    total_w = prefix_w + hour_num_w + (hours==1?hour_text_w:hours_text_w) + 
+              min_num_w + (mins==1?min_text_w:mins_text_w) + 
+              sec_num_w + (secs==1?sec_text_w:secs_text_w);
+  ) : (
+    sprintf(#min_num, "%d", mins);
+    sprintf(#sec_num, "%d", secs);
+    
+    gfx_setfont(size*project_h, font_text);
+    gfx_str_measure(" minute", min_text_w, th);
+    gfx_str_measure(" minutes", mins_text_w, th);
+    gfx_str_measure(" second", sec_text_w, th);
+    gfx_str_measure(" seconds", secs_text_w, th);
+    
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_measure(#min_num, min_num_w, th);
+    gfx_str_measure(#sec_num, sec_num_w, th);
+    
+    total_w = prefix_w + min_num_w + (mins==1?min_text_w:mins_text_w) + 
+              sec_num_w + (secs==1?sec_text_w:secs_text_w);
+  );
+) : (
+  // Timer format
+  total_countdown >= 3600 || show_hours > 0.5 ? (
+    sprintf(#timer_text, "%02d:%02d:%02d", hours, mins, secs);
+  ) : (
+    sprintf(#timer_text, "%02d:%02d", mins, secs);
+  );
+  
+  gfx_setfont(size*project_h, font_digits);
+  gfx_str_measure(#timer_text, timer_w, th);
+  total_w = prefix_w + timer_w;
+);
+
+// Calculate positioning
+txtw = total_w;
+txth = size*project_h;
+b = (border*txth)|0;
+yt = ((project_h - txth - b*2)*ypos)|0;
+xp = (xpos * (project_w-txtw))|0;
+
+// Draw background
+gfx_set(bgc,bgc,bgc,current_bga);
+current_bga>0?gfx_fillrect(bgfit?xp-b:0, yt, bgfit?txtw+b*2:project_w, txth+b*2);
+
+// Draw text with dual fonts
+gfx_set(fgc,fgc,fgc,current_fga);
+current_x = xp;
+
+// Draw prefix
+strcmp(#text, "") != 0 ? (
+  gfx_setfont(size*project_h, font_text);
+  gfx_str_draw(#text, current_x, yt+b);
+  current_x += prefix_w;
+);
+
+text_format > 0.5 ? (
+  // Draw text format with alternating fonts
+  total_countdown >= 3600 || show_hours > 0.5 ? (
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_draw(#hour_num, current_x, yt+b);
+    current_x += hour_num_w;
+    
+    gfx_setfont(size*project_h, font_text);
+    hours == 1 ? (
+      gfx_str_draw(" hour ", current_x, yt+b);
+      current_x += hour_text_w;
+    ) : (
+      gfx_str_draw(" hours ", current_x, yt+b);
+      current_x += hours_text_w;
+    );
+    
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_draw(#min_num, current_x, yt+b);
+    current_x += min_num_w;
+    
+    gfx_setfont(size*project_h, font_text);
+    mins == 1 ? (
+      gfx_str_draw(" minute ", current_x, yt+b);
+      current_x += min_text_w;
+    ) : (
+      gfx_str_draw(" minutes ", current_x, yt+b);
+      current_x += mins_text_w;
+    );
+    
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_draw(#sec_num, current_x, yt+b);
+    current_x += sec_num_w;
+    
+    gfx_setfont(size*project_h, font_text);
+    secs == 1 ? (
+      gfx_str_draw(" second", current_x, yt+b);
+    ) : (
+      gfx_str_draw(" seconds", current_x, yt+b);
+    );
+  ) : (
+    // Minutes and seconds only
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_draw(#min_num, current_x, yt+b);
+    current_x += min_num_w;
+    
+    gfx_setfont(size*project_h, font_text);
+    mins == 1 ? (
+      gfx_str_draw(" minute ", current_x, yt+b);
+      current_x += min_text_w;
+    ) : (
+      gfx_str_draw(" minutes ", current_x, yt+b);
+      current_x += mins_text_w;
+    );
+    
+    gfx_setfont(size*project_h, font_digits);
+    gfx_str_draw(#sec_num, current_x, yt+b);
+    current_x += sec_num_w;
+    
+    gfx_setfont(size*project_h, font_text);
+    secs == 1 ? (
+      gfx_str_draw(" second", current_x, yt+b);
+    ) : (
+      gfx_str_draw(" seconds", current_x, yt+b);
+    );
+  );
+) : (
+  // Timer format - just digits
+  gfx_setfont(size*project_h, font_digits);
+  gfx_str_draw(#timer_text, current_x, yt+b);
+);

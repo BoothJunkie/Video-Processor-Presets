@@ -1,0 +1,60 @@
+// BJ: Text Overlay with Weave (Projector Shake Emulation)
+text="Your \ntext \nhere"; //add "/n" or span multiple lines within quotes if needed:"
+font="Arial"; // enter the name of the font exactly as named in your font picklist
+
+// Text properties
+//@param1:size 'Text height' 0.1 0.01 0.3 0.1 0.01
+//@param2:xpos 'X position' 0.5 -0.5 1.5 0.5 0.01
+//@param3:ypos 'Y position' 0.5 -0.5 1.5 0.5 0.01
+
+// Text color
+//@param5:txtr 'Text R' 1 0 1 0.5 0.01
+//@param6:txtg 'Text G' 1 0 1 0.5 0.01
+//@param7:txtb 'Text B' 1 0 1 0.5 0.01
+//@param8:fga 'Text opacity' 1 0 1 0.5 0.01
+
+// Background box
+//@param10:border 'BG Size' 0.25 -0.5 15 2 0.25
+//@param11:bgred 'BG R' 0 0 1 0.5 0.01
+//@param12:bggreen 'BG G' 0 0 1 0.5 0.01 
+//@param13:bgblue 'BG B' 0 0 1 0.5 0.01 
+//@param14:bga 'BG opacity' 0 0 1 0.5 0.01
+
+// Weave (projector shake)
+//@param16:weave_amt 'Weave Amount (px)' 0.0 0.0 10.0 0.2 0.01
+//@param17:weave_mode 'Weave Mode: 0=Vert, 1=XY' 1 0 1 0.5 1
+//@param18:weave_step 'Weave Frame Rate' 30 1 60 15 1
+
+gfx_blit(0,1);
+gfx_setfont(size*project_h,font);
+gfx_str_measure(text,txtw,txth);
+
+// --- Time quantization for stop-motion
+step_rate = max(1,weave_step); // ensure > 0
+quantized_time = floor(project_time * step_rate) / step_rate;
+
+// --- Weave motion (in pixels)
+freq1 = 3.0; // horizontal frequency (Hz)
+freq2 = 3.2; // vertical frequency (Hz)
+phase_offset = 1.57; // ~π/2 for desync
+
+jitter_x = (weave_mode > 0) ? sin(quantized_time * freq1) * weave_amt : 0;
+jitter_y = sin(quantized_time * freq2 + phase_offset) * weave_amt;
+
+// --- Convert to normalized (screen-space) offset
+offset_x_norm = jitter_x / project_w;
+offset_y_norm = jitter_y / project_h;
+
+// --- Final text placement
+yt = (project_h - txth * (1 + border * 2)) * (ypos + offset_y_norm);
+xt = (project_w - txtw) * (xpos + offset_x_norm);
+
+// --- Background box
+gfx_r = bgred; gfx_g = bggreen; gfx_b = bgblue;
+gfx_set(bgred, bggreen, bgblue, bga);
+gfx_fillrect(0, yt, project_w, txth * (1 + border * 2));
+
+// --- Text render
+gfx_r = txtr; gfx_g = txtg; gfx_b = txtb;
+gfx_set(txtr, txtg, txtb, fga);
+gfx_str_draw(text, xt, yt + txth * border);

@@ -1,0 +1,163 @@
+// Pure Frequency Analyzer - Mono Mix (requires JSFX video sample peeker)
+//@gmem=jsfx_to_video
+//@param 3:num_bars 'Number of bars' 64 8 512 64 1
+//@param 4:fft_size_req 'FFT size (bits)' 10 5 15 10 1
+//@param 5:smoothing 'Smoothing (0=none, 0.9=very smooth)' 0.7 0 0.95 0.5 0.01
+//@param 6:bar_spacing 'Bar spacing (pixels)' 0 0 20 2 1
+//@param 7:anchor_mode 'Anchor (0=bottom, 1=top, 2=center)' 0 0 2 0 1
+
+//@param 8:use_smooth 'Improved sampling' 0 0 1 0 1
+//@param 9:use_log 'Logarithmic' 0 0 8 0 1
+
+//@param 10:bar_red 'Bar Red' 1 0 1 .5 .02
+//@param 11:bar_green 'Bar Green' 1 0 1 .5 .02
+//@param 12:bar_blue 'Bar Blue' 1 0 1 .5 .02
+//@param 13:bar_alpha 'Bar Alpha' 1 0 1 1 .02
+
+colorspace='RGBA';
+
+fft_size=min(max(1<<fft_size_req,32),32768);
+meter_size = project_h;
+channel_mode = 3; // Fixed to mono mix
+
+bufplaypos = gmem[0];
+bufwritecursor = gmem[1];
+bufsrate = gmem[2];
+bufstart = gmem[3];
+bufend = gmem[4];
+nch = gmem[5];
+
+use_amt = ((bufsrate / framerate)|0) + fft_size;
+
+dt=max(bufplaypos - project_time,0);
+dt*bufsrate < use_amt ? underrun_cnt+=1;
+rdpos = bufwritecursor - ((dt*bufsrate - use_amt)|0)*nch;
+rdpos < bufstart ? rdpos += bufend-bufstart;
+
+left_buf = 0;
+right_buf = left_buf + fft_size;
+window_buf = right_buf + fft_size;
+smooth_buf = window_buf + fft_size;
+
+window_size != fft_size ? (
+  window_size=0;
+  loop(fft_size,
+    wp = window_size*(2*$pi)/fft_size;
+    window_buf[window_size] = (0.35875 - 0.48829 * cos(wp) +
+                               0.14128 * cos(2*wp) - 0.01168 * cos(3*wp));
+    window_size += 1;
+  );
+);
+
+function h6s2i(h) global() ((h -= floor(h*1/6)*6)<3 ? h<1 ? 1-h : 0 : h<4 ? h-3 : 1);
+function set_hsv(h,s,v) global() (
+  // Normalize hue to 0-360 range
+  h = h - floor(h/360)*360;
+  h < 0 ? h += 360;
+  
+  h*=1/60; s *= v;
+  gfx_set(v-h6s2i(h+2)*s,v-h6s2i(h)*s,v-h6s2i(h-2)*s);
+);
+
+function analyze(gmemrdpos, buf, fft_size) local(i w n offs v)
+  global(gmem window_buf nch bufend bufstart channel_mode) (
+  i = 0;
+  channel_mode==1? gmemrdpos += 1;
+  loop(fft_size,
+    gmemrdpos >= bufend ? gmemrdpos+=bufstart-bufend;
+    v = gmem[gmemrdpos];
+    channel_mode==3 ? v = (v+gmem[gmemrdpos+1])*.5;
+    buf[i] = v * window_buf[i];
+    gmemrdpos += nch;
+    i+=1;
+  );
+  fft_real(buf,fft_size);
+  fft_permute(buf,fft_size/2);
+
+  offs = -log(fft_size*.25)*2;
+  w=0;
+  i=2;
+  v = sqr(buf[1]);
+  n = v < 10^-20 ? -200 : (log(v)+offs)*(10.0/log(10)); // save nyquist
+  loop(fft_size*.5 - 1,
+    v=sqr(buf[i])+sqr(buf[i+1]);
+    buf[w]=v < 10^-20 ? -200 : (log(v)+offs) * (10.0/log(10));
+    w+=1;
+    i+=2;
+  );
+  buf[w]=n;
+);
+
+log_scale = use_log ? 1/(exp(1+use_log)-$e);
+function logscale(f) global(use_log log_scale) (
+  use_log ? (exp(1+f*use_log) - $e) * log_scale: f;
+);
+
+function sample(buf, f, df, bufsz) global(use_smooth) local(next rdidx frac) (
+  frac = logscale(f)*bufsz;
+  rdidx = frac|0;
+  use_smooth ? (
+    frac -= rdidx;
+    next = (logscale(f+df)*bufsz)|0;
+    next == rdidx && rdidx<bufsz-1 ? buf[rdidx] * (1-frac) + buf[rdidx+1]*frac :
+    next <= rdidx+1 ? buf[frac<.5||next>=bufsz?rdidx:next] : (
+      frac=buf[rdidx];
+      loop(next-rdidx-1, frac = max(frac,buf[rdidx+=1]); );
+      frac;
+    );
+  ) : buf[rdidx];
+);
+
+function draw_analyzer(buf, bufsz, xpos, ypos, w, h)
+  global(num_bars smoothing smooth_buf bar_spacing bar_red bar_green bar_blue bar_alpha anchor_mode)
+  local(i di yh bar_width current_val smooth_val bar_index actual_bar_width center_y half_height) (
+
+  bar_width = w / num_bars;
+  actual_bar_width = max(1, bar_width - bar_spacing);
+  i=0; di = 1/num_bars;
+  bar_index = 0;
+  
+  // Set the solid color with alpha once
+  gfx_set(bar_red, bar_green, bar_blue, bar_alpha);
+  
+  loop(num_bars,
+    current_val = sample(buf,i,di,bufsz);
+    
+    // Apply smoothing between frames using integer index
+    smoothing > 0 ? (
+      smooth_val = smooth_buf[bar_index] * smoothing + current_val * (1 - smoothing);
+      smooth_buf[bar_index] = smooth_val;
+    ) : smooth_val = current_val;
+    
+    yh = 0|(min(max(0,((smooth_val*(1/70))+1)),1)*h);
+    
+    // Draw based on anchor mode
+    yh > 0 ? (
+      anchor_mode == 0 ? (
+        // Bottom anchor (original)
+        gfx_fillrect(xpos, ypos-yh, actual_bar_width, yh);
+      ) : anchor_mode == 1 ? (
+        // Top anchor
+        gfx_fillrect(xpos, ypos-h, actual_bar_width, yh);
+      ) : (
+        // Center anchor - split the bar height in half
+        center_y = ypos - h/2;
+        half_height = yh/2;
+        gfx_fillrect(xpos, center_y - half_height, actual_bar_width, yh);
+      );
+    );
+    
+    i+=di;
+    xpos+=bar_width;
+    bar_index += 1;
+  );
+);
+
+// Clear the entire frame
+gfx_fillrect(0,0,project_w,project_h);
+
+// Analyze current audio
+analyze(rdpos,left_buf,fft_size);
+
+// Draw analyzer using full height (mono mix only)
+draw_analyzer(left_buf,fft_size*.5, 0, project_h, project_w, meter_size);

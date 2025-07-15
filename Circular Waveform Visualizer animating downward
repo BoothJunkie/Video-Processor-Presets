@@ -1,0 +1,76 @@
+//Circular Waveform Visualizer (requires JSFX video sample peeker)
+//@gmem=jsfx_to_video
+//@param 1:wave_count "Wave Count" 500 100 1000 500 1
+//@param 2:gain_db "Gain (dB)" -6 -80 12 -12 1
+//@param 3:radius "Radius" 0.3 0.1 1 0.5 0.01
+//@param 4:rectwidth "Rect Width" 2 1 10 2 1
+//@param 5:fg_r "Foreground R" 1 0 1 .5 .02
+//@param 6:fg_g "Foreground G" 1 0 1 .5 .02
+//@param 7:fg_b "Foreground B" 1 0 1 .5 .02
+//@param 8:bg_r "Background R" 0 0 1 .5 .02
+//@param 9:bg_g "Background G" 0 0 1 .5 .02
+//@param 10:bg_b "Background B" 0 0 1 .5 .02
+
+// Initialization
+gfx_set(bg_r, bg_g, bg_b, 1);
+gfx_fillrect(0, 0, project_w, project_h);
+
+bufplaypos = gmem[0];
+bufwritecursor = gmem[1];
+bufsrate = gmem[2];
+bufstart = gmem[3];
+bufend = gmem[4];
+nch = gmem[5];
+gain = 10^(gain_db * (1/20));
+
+dt = max(bufplaypos - project_time, 0);
+rdpos = bufwritecursor - ((dt * bufsrate - wave_count) | 0) * nch;
+rdpos < bufstart ? rdpos += bufend - bufstart;
+
+gfx_set(fg_r, fg_g, fg_b, 1);
+
+cx = project_w * 0.5;
+cy = project_h * 0.5;
+
+i = 0;
+loop(wave_count,
+  l = gmem[rdpos]; r = gmem[rdpos + 1];
+  amp = (l + r) * 0.5 * gain;
+
+  angle = i * (2 * $pi / wave_count);
+  rad = radius * project_w * 0.5; // Fixed base radius
+
+  xpos = cx + cos(angle) * rad;
+  ypos = cy + sin(angle) * rad;
+
+  // Calculate the rectangle's end position based on amplitude
+  rad_mod = rad + amp * project_w * 0.25;
+  xpos_end = cx + cos(angle) * rad_mod;
+  ypos_end = cy + sin(angle) * rad_mod;
+
+  // Calculate the length and angle of the rectangle
+  length = sqrt((xpos_end - xpos)^2 + (ypos_end - ypos)^2);
+  angle_rad = atan2(ypos_end - ypos, xpos_end - xpos);
+
+  // Calculate rectangle corners
+  half_width = rectwidth * 0.5;
+  cos_a = cos(angle_rad);
+  sin_a = sin(angle_rad);
+
+  // Points for the rectangle
+  x0 = xpos - half_width * sin_a;
+  y0 = ypos + half_width * cos_a;
+  x1 = xpos + half_width * sin_a;
+  y1 = ypos - half_width * cos_a;
+  x2 = xpos_end + half_width * sin_a;
+  y2 = ypos_end - half_width * cos_a;
+  x3 = xpos_end - half_width * sin_a;
+  y3 = ypos_end + half_width * cos_a;
+
+  // Draw the rectangle using fillrect
+  gfx_fillrect(x0, y0, rectwidth, length);
+  
+  rdpos += nch;
+  rdpos >= bufend ? rdpos = bufstart;
+  i += 1;
+);

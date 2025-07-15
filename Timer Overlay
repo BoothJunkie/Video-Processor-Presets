@@ -1,0 +1,85 @@
+// Customizable Timer Overlay – HH:MM:SS.sss with format + debug toggles
+font="Arial"; // enter the name of the font exactly as named in your font picklist
+
+//@param1:size 'text height' 0.05 0.01 0.2 0.1 0.001
+//@param2:ypos 'y position' 0.95 0 1 0.5 0.01
+//@param3:xpos 'x position' 0.5 0 1 0.5 0.01
+//@param4:border 'bg pad' 0.1 0 1 0.5 0.01
+//@param5:fgc 'text bright' 1.0 0 1 0.5 0.01
+//@param6:fga 'text alpha' 1.0 0 1 0.5 0.01
+//@param7:bgc 'bg bright' 0.75 0 1 0.5 0.01
+//@param8:bga 'bg alpha' 0.5 0 1 0.5 0.01
+//@param9:bgfit 'fit bg to text' 0 0 1 0.5 1
+//@param10:ignoreinput 'ignore input' 0 0 1 0.5 1
+//@param11:decimals 'decimal places' 3 0 3 1 1
+//@param12:showh 'show hours' 1 0 1 0.5 1
+//@param13:showm 'show minutes' 1 0 1 0.5 1
+//@param14:shows 'show seconds' 1 0 1 0.5 1
+//@param15:showdebug 'show debug info' 0 0 1 0.5 1
+
+// Handle input
+input = ignoreinput ? -2 : 0;
+project_wh_valid === 0 ? input_info(input, project_w, project_h);
+gfx_a2 = 0;
+gfx_blit(input, 1);
+gfx_setfont(size * project_h, font);
+
+// Time since item start
+seconds = time;
+hours = (seconds / 3600) | 0;
+minutes = (seconds / 60) % 60;
+whole_secs = seconds % 60;
+fraction = seconds - floor(seconds);
+
+// Clamp decimals to range 0..3
+decimals = min(3, max(0, decimals));
+
+// Fractional multiplier
+mult = decimals == 0 ? 0
+     : decimals == 1 ? 10
+     : decimals == 2 ? 100
+     : 1000;
+frac_part = mult > 0 ? floor(fraction * mult + 0.0001) : 0;
+
+// Build formatted string in parts
+#text=""; #h=""; #m=""; #s="";
+
+// Step 1: Hours
+showh > 0.5 ? sprintf(#h, "%02d:", hours);
+
+// Step 2: Minutes  
+showm > 0.5 ? sprintf(#m, "%02d:", minutes);
+
+// Step 3: Seconds
+shows > 0.5 ? (
+  decimals == 0 ? sprintf(#s, "%02d", whole_secs)
+  : decimals == 1 ? sprintf(#s, "%02d.%01d", whole_secs, frac_part)
+  : decimals == 2 ? sprintf(#s, "%02d.%02d", whole_secs, frac_part)
+  : sprintf(#s, "%02d.%03d", whole_secs, frac_part);
+);
+
+// Combine, avoiding trailing colon if seconds hidden
+strcat(#text, #h);
+strcat(#text, #m);
+strcat(#text, #s);
+
+// Optional debug overlay
+showdebug > 0.5 ? (
+  sprintf(#debug, "Raw: %.3f | H:%d M:%d S:%d F:%d | Toggles: H:%.0f M:%.0f S:%.0f | Out: '%s'", 
+    seconds, hours, minutes, whole_secs, frac_part, showh, showm, shows, #text);
+  gfx_setfont(size * project_h * 0.3, font);
+  gfx_set(1, 1, 0, 1); // yellow
+  gfx_str_draw(#debug, 10, 10);
+);
+
+// Draw final timer
+gfx_setfont(size * project_h, font);
+gfx_str_measure(#text, txtw, txth);
+b = (border * txth) | 0;
+yt = ((project_h - txth - b * 2) * ypos) | 0;
+xp = (xpos * (project_w - txtw)) | 0;
+
+gfx_set(bgc, bgc, bgc, bga);
+bga > 0 ? gfx_fillrect(bgfit ? xp - b : 0, yt, bgfit ? txtw + b * 2 : project_w, txth + b * 2);
+gfx_set(fgc, fgc, fgc, fga);
+gfx_str_draw(#text, xp, yt + b);

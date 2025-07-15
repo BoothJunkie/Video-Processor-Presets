@@ -1,0 +1,177 @@
+//Audiogram: Spectrum Analyser
+//@gmem=jsfx_to_video
+//@param 1:scroll_duration 'scroll duration' 8 1 30 15 0.1
+//@param 2:gram_size_ratio 'spectrogram size' 0.85 0 1 0.5 .01
+//@param 3:channel_mode 'chan (3=mono mix)' 3 3 3 3 1
+//@param 4:fft_size_req 'FFT size (bits)' 10 5 15 10 1
+
+//@param 6:use_smooth 'Improved sampling' 0 0 1 0 1
+//@param 7:use_log 'Logarithmic' 0 0 8 0 1
+
+//@param 9:analyzer_hue 'Analyzer hue' -20 -360 360 0 1
+//@param 10:analyzer_hue_range 'Analyzer hue range' 80 -360 360 0 1
+
+//@param 11:gram_hue "'gram hue" 0 -360 360 0 1
+//@param 12:gram_hue_range "'gram hue range" 240 -720 720 0 1
+
+colorspace='RGBA';
+
+fft_size = min(max(1 << fft_size_req, 32), 32768);
+(meter_size = (project_h * (1 - gram_size_ratio)) | 0) < 20 ? meter_size = 0;
+meter_size > project_h - 20 ? meter_size = project_h;
+gram_size = project_h - meter_size - (meter_size > 0 ? floor(project_h / 32) : 0);
+
+bufplaypos = gmem[0];
+bufwritecursor = gmem[1];
+bufsrate = gmem[2];
+bufstart = gmem[3];
+bufend = gmem[4];
+nch = gmem[5];
+
+scroll_size = max((project_w / (scroll_duration * framerate)) | 0, 1);
+use_amt = ((bufsrate / framerate) | 0) + fft_size;
+
+dt = max(bufplaypos - project_time, 0);
+dt * bufsrate < use_amt ? underrun_cnt += 1;
+rdpos = bufwritecursor - ((dt * bufsrate - use_amt) | 0) * nch;
+rdpos < bufstart ? rdpos += bufend - bufstart;
+
+left_buf = 0;
+right_buf = left_buf + fft_size;
+window_buf = right_buf + fft_size;
+
+window_size != fft_size ? (
+  window_size = 0;
+  loop(fft_size,
+    wp = window_size * (2 * $pi) / fft_size;
+    window_buf[window_size] = (0.35875 - 0.48829 * cos(wp) +
+                               0.14128 * cos(2 * wp) - 0.01168 * cos(3 * wp));
+    window_size += 1;
+  );
+);
+
+function h6s2i(h) global() ((h -= floor(h * 1 / 6) * 6) < 3 ? h < 1 ? 1 - h : 0 : h < 4 ? h - 3 : 1);
+function set_hsv(h, s, v) global() (
+  h *= 1 / 60;
+  s *= v;
+  gfx_set(v - h6s2i(h + 2) * s, v - h6s2i(h) * s, v - h6s2i(h - 2) * s);
+);
+
+function analyze(gmemrdpos, buf, fft_size) local(i, w, n, offs, v)
+  global(gmem, window_buf, nch, bufend, bufstart) (
+  i = 0;
+  loop(fft_size,
+    gmemrdpos >= bufend ? gmemrdpos += bufstart - bufend;
+    v = gmem[gmemrdpos];
+    v = (v + gmem[gmemrdpos + 1]) * .5; // Mono mix
+    buf[i] = v * window_buf[i];
+    gmemrdpos += nch;
+    i += 1;
+  );
+  fft_real(buf, fft_size);
+  fft_permute(buf, fft_size / 2);
+
+  offs = -log(fft_size * .25) * 2;
+  w = 0;
+  i = 2;
+  v = sqr(buf[1]);
+  n = v < 10 ^ -20 ? -200 : (log(v) + offs) * (10.0 / log(10)); // Save Nyquist
+  loop(fft_size * .5 - 1,
+    v = sqr(buf[i]) + sqr(buf[i + 1]);
+    buf[w] = v < 10 ^ -20 ? -200 : (log(v) + offs) * (10.0 / log(10));
+    w += 1;
+    i += 2;
+  );
+  buf[w] = n;
+);
+
+log_scale = use_log ? 1 / (exp(1 + use_log) - $e);
+function logscale(f) global(use_log, log_scale) (
+  use_log ? (exp(1 + f * use_log) - $e) * log_scale : f;
+);
+
+function sample(buf, f, df, bufsz) global(use_smooth) local(next, rdidx, frac) (
+  frac = logscale(f) * bufsz;
+  rdidx = frac | 0;
+  use_smooth ? (
+    frac -= rdidx;
+    next = (logscale(f + df) * bufsz) | 0;
+    next == rdidx && rdidx < bufsz - 1 ? buf[rdidx] * (1 - frac) + buf[rdidx + 1] * frac :
+    next <= rdidx + 1 ? buf[frac < .5 || next >= bufsz ? rdidx : next] : (
+      frac = buf[rdidx];
+      loop(next - rdidx - 1, frac = max(frac, buf[rdidx += 1]); );
+      frac;
+    );
+  ) : buf[rdidx];
+);
+
+function draw_analyzer(buf, bufsz, xpos, ypos, w, h)
+  global(gfx_dest, analyzer_hue, analyzer_hue_range)
+  local(meter_image, meter_image_size, i, di, yh, hue_range, hue_start, rect_width) (
+  rect_width = 4; // Fixed width for each rectangle
+
+  meter_image_size != h || hue_start != analyzer_hue || hue_range != analyzer_hue_range ? (
+    meter_image_size = h;
+    hue_start = analyzer_hue;
+    hue_range = analyzer_hue_range;
+    gfx_img_free(meter_image);
+    gfx_dest = meter_image = gfx_img_alloc(2, (h + 1) & 0xffffe);
+    i = 0;
+    loop(h,
+      set_hsv(i * analyzer_hue_range / h + analyzer_hue, .7, .9);
+      gfx_fillrect(0, i, 2, 2);
+      i += 1;
+    );
+    gfx_dest = -1;
+  );
+
+  i = 0; di = 1 / (bufsz / rect_width);
+  loop(bufsz / rect_width,
+    yh = 0 | (min(max(0, ((sample(buf, i, di, bufsz) * (1 / 70)) + 1)), 1) * h);
+    yh > 0 ? gfx_blit(meter_image, 0, xpos, ypos - yh, 1, yh, 0, h - yh, 1, yh);
+    i += di;
+    xpos += rect_width;
+  );
+);
+
+function draw_gram(buf, bufsz, xpos, ypos, w, h)
+  local(i, di, v) global(gram_hue, gram_hue_range) (
+  i = 0;
+  di = 1 / h;
+  loop(h,
+    v = 2 + sample(buf, i, di, bufsz) * 1 / 64;
+    set_hsv(gram_hue + v * gram_hue_range, .7, min(max(v * 2 - 1, 0), 1) * (.5 + v * .25));
+    gfx_fillrect(xpos, ypos -= 1, 4, 1);
+    i += di;
+  );
+);
+
+last_frame && last_frame_w == project_w && last_frame_h == project_h ? (
+  gfx_blit(last_frame, 0, 0, 0, project_w - scroll_size, gram_size,
+                         scroll_size, 0, project_w - scroll_size, gram_size);
+  gfx_fillrect(project_w - scroll_size, 0, scroll_size, gram_size);
+  gfx_fillrect(0, gram_size, project_w, project_h - gram_size);
+) : gfx_fillrect(0, 0, project_w, project_h);
+
+sp = 0;
+drdpos = ((use_amt - fft_size) / scroll_size) * nch;
+loop(gram_size > 0 ? scroll_size : 1,
+  sp == 0 || (rdpos & 0xffffffe) != lrdpos ? (
+    lrdpos = (rdpos & 0xffffffe);
+    analyze(lrdpos, left_buf, fft_size);
+  );
+  rdpos += drdpos;
+  gram_size > 0 ? (
+    draw_gram(left_buf, fft_size * .5, project_w - scroll_size + sp, gram_size, 1, gram_size);
+  );
+  sp += 1;
+);
+
+meter_size > 0 ? (
+  draw_analyzer(left_buf, fft_size * .5, 0, project_h, project_w, meter_size);
+);
+
+gfx_img_free(last_frame);
+last_frame = gfx_img_hold(-1);
+last_frame_w = project_w;
+last_frame_h = project_h;

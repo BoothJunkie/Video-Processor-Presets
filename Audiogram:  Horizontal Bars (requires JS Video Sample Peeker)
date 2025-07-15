@@ -1,0 +1,76 @@
+//Audiogram: Horizontal Bars (requires JSFX video sample peeker)
+//Place the plugin 'JS: video sample peeker' plugin immediately before this instance of video processor in your chain
+//Author: Booth Junkie (http://boothjunkie.com)
+
+//@gmem=jsfx_to_video
+//@param 1:dotcount "Num of Bars" 1200 10 5000 400 10
+//@param 2:dotsize "point size" 4 2 40 20 1
+//@param 3:gain_db "Bar height" -6 -80 12 -12 1
+//@param 4:rectwidth "Bar width" 2 1 10 2 1
+//@param 5:smoothing "Smoothness" 0.5 0 0.99 0.5 0.01
+
+//@param 7:cx "Horiz Pos" .5 0 1 .5 .01
+//@param 8:cy "Vertical Pos" .5 0 1 .5 .01
+
+//@param 10:fg_r "Bar Color R" 1 0 1 .5 .02
+//@param 11:fg_g "Bar Color G" 1 0 1 .5 .02
+//@param 12:fg_b "Bar Color B" 1 0 1 .5 .02
+//@param 13:fg_a "Bar Transparency" 1 0 1 1 0.01
+//@param 14:bg_r "Backgrnd Color R" 0 0 1 .5 .02
+//@param 15:bg_g "Backgrnd Color G" 0 0 1 .5 .02
+//@param 16:bg_b "Backgrnd Color B" 0 0 1 .5 .02
+//@param 17:bg_a "Backgrnd Trans" 1 0 1 1 0.01
+
+
+
+// Initialize or resize the previous values array if needed
+prev_dotcount != dotcount ? (
+  prev_values = 10000;
+  memset(prev_values, 0, dotcount);
+  prev_dotcount = dotcount;
+);
+
+// Clear background
+gfx_set(bg_r, bg_g, bg_b, bg_a);
+gfx_fillrect(0, 0, project_w, project_h);
+
+bufplaypos = gmem[0];
+bufwritecursor = gmem[1];
+bufsrate = gmem[2];
+bufstart = gmem[3];
+bufend = gmem[4];
+nch = gmem[5];
+gain = 10^(gain_db * (1/20));
+
+dt = max(bufplaypos - project_time, 0);
+dt * bufsrate < dotcount ? underrun_cnt += 1;
+rdpos = bufwritecursor - ((dt * bufsrate - dotcount) | 0) * nch;
+rdpos < bufstart ? rdpos += bufend - bufstart;
+
+gfx_set(fg_r, fg_g, fg_b, fg_a);
+
+function getpt(index)
+(
+  l = gmem[rdpos]; r = gmem[rdpos+1];
+  (rdpos += nch) >= bufend ? rdpos = bufstart;
+  
+  current_value = (l + r) * 0.5 * gain;
+  smoothed_value = current_value * (1 - smoothing) + prev_values[index] * smoothing;
+  prev_values[index] = smoothed_value;
+  smoothed_value;
+);
+
+i = 0;
+loop(dotcount,
+  yp_value = getpt(i);
+  xp = project_w * (cx - 0.5 + i / dotcount);
+  yp_center = project_h * cy;
+  yp = project_h * (cy + yp_value);
+  
+  // Draw the vertical line as a narrow rectangle
+  rect_height = abs(yp - yp_center);
+  rect_y = min(yp, yp_center);
+  gfx_fillrect(xp - rectwidth * .5, rect_y, rectwidth, rect_height);
+  
+  i += 1;
+);

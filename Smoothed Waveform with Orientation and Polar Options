@@ -1,0 +1,94 @@
+//Smoothed Waveform with Orientation and Polar options
+//@gmem=jsfx_to_video
+//@param 1:polar_mode "Polar Mode" 0 0 3 0 1 // 0 = Bilateral, 1 = Unilateral Positive, 2 = Unilateral Negative, 3 = Unilateral Centered
+//@param 2:orientation "Orientation" 0 0 1 0 1 // 0 = Horizontal, 1 = Vertical
+//@param 3:gain_db "gain (dB)" -6 -80 40 -10 1
+//@param 4:dotcount "point count" 1200 10 5000 400 10
+//@param 5:smoothing "smoothing factor" 0.5 0 0.99 0.5 0.01
+//@param 6:cx "center X" .5 0 1 .5 .01
+//@param 7:cy "center Y" .5 0 1 .5 .01
+//@param 8:rectwidth "rect width" 2 1 10 2 1
+//@param 9:fg_r "foreground R" 1 0 1 .5 .02
+//@param 10:fg_g "foreground G" 1 0 1 .5 .02
+//@param 11:fg_b "foreground B" 1 0 1 .5 .02
+//@param 12:bg_r "background R" 0 0 1 .5 .02
+//@param 13:bg_g "background G" 0 0 1 .5 .02
+//@param 14:bg_b "background B" 0 0 1 .5 .02
+
+// Initialize or resize the previous values array if needed
+prev_dotcount != dotcount ? (
+  prev_values = 10000;
+  memset(prev_values, 0, dotcount);
+  prev_dotcount = dotcount;
+);
+
+// Clear background
+gfx_set(bg_r, bg_g, bg_b, 1);
+gfx_fillrect(0, 0, project_w, project_h);
+
+bufplaypos = gmem[0];
+bufwritecursor = gmem[1];
+bufsrate = gmem[2];
+bufstart = gmem[3];
+bufend = gmem[4];
+nch = gmem[5];
+gain = 10^(gain_db * (1/20));
+
+dt = max(bufplaypos - project_time, 0);
+dt * bufsrate < dotcount ? underrun_cnt += 1;
+rdpos = bufwritecursor - ((dt * bufsrate - dotcount) | 0) * nch;
+rdpos < bufstart ? rdpos += bufend - bufstart;
+
+gfx_set(fg_r, fg_g, fg_b, 1);
+
+function getpt(index)
+(
+  l = gmem[rdpos]; r = gmem[rdpos+1];
+  (rdpos += nch) >= bufend ? rdpos = bufstart;
+  
+  current_value = (l + r) * 0.5 * gain;
+  smoothed_value = current_value * (1 - smoothing) + prev_values[index] * smoothing;
+  prev_values[index] = smoothed_value;
+  smoothed_value;
+);
+
+i = 0;
+loop(dotcount,
+  value = getpt(i);
+  center_y = project_h * cy;
+  center_x = project_w * cx;
+  
+  // Adjust value based on polar mode
+  polar_mode == 1 ? (
+    // Unilateral Positive
+    value = abs(value);
+  ) :
+  polar_mode == 2 ? (
+    // Unilateral Negative
+    value = -abs(value);
+  ) :
+  polar_mode == 3 ? (
+    // Unilateral Centered
+    value = abs(value);
+  );
+
+  // Horizontal orientation
+  orientation == 0 ? (
+    xp = project_w * (cx - 0.5 + i / dotcount);
+    yp = project_h * (cy + value * (polar_mode == 0 ? 1 : 1)); // Use full value for centered unipolar
+    rect_height = abs(yp - center_y);
+    rect_y = polar_mode == 3 ? (center_y - rect_height * 0.5) : min(yp, center_y);
+    gfx_fillrect(xp - rectwidth * .5, rect_y, rectwidth, rect_height);
+  ) :
+  
+  // Vertical orientation
+  (
+    yp = project_h * (cy - 0.5 + i / dotcount);
+    xp = project_w * (cx + value * (polar_mode == 0 ? 1 : 1)); // Use full value for centered unipolar
+    rect_width = abs(xp - center_x);
+    rect_x = polar_mode == 3 ? (center_x - rect_width * 0.5) : min(xp, center_x);
+    gfx_fillrect(rect_x, yp - rectwidth * .5, rect_width, rectwidth);
+  );
+  
+  i += 1;
+);

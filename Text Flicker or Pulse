@@ -1,0 +1,83 @@
+// BJ: Text Flicker or Pulse (Rhythmic or Random)
+// Pulsing text with rhythmic and random modes
+
+text="Your \ntext \nhere"; //add "/n" or span multiple lines within quotes if needed:"
+font="Arial"; // enter the name of the font exactly as named in your font picklist
+
+// Position and base size
+//@param1:xpos 'X position' 0.5 -0.5 1.5 0.5 0.01
+//@param2:ypos 'Y position' 0.5 -0.5 1.5 0.5 0.01
+//@param3:base_size 'Base text height' 0.1 0.01 0.5 0.1 0.01
+
+// Pulse animation
+//@param5:pulse_freq 'Pulse Frequency (Hz)' 2 0.1 10 2 0.1
+//@param6:pulse_amt 'Pulse Strength' 0.2 0 2 0.5 0.01
+//@param7:pulse_mode 'Pulse Mode' 0 0 3 0 1 // 0=Opacity, 1=Scale, 2=Random Opacity, 3=Random Scale
+
+// Text color
+//@param10:txtr 'Text R' 1 0 1 0.5 0.01
+//@param11:txtg 'Text G' 1 0 1 0.5 0.01
+//@param12:txtb 'Text B' 1 0 1 0.5 0.01
+//@param13:fga_base 'Base opacity' 1 0 1 0.5 0.01
+
+gfx_blit(0,1);
+
+// Time
+t = max(0, project_time);
+pulse = 0;
+scale = 1;
+fga = fga_base;
+
+// ---------------------------
+// Random pulse timing logic
+// ---------------------------
+refresh_interval = 1 / max(0.01, pulse_freq);
+
+last_pulse_time >= 0 ? (
+  (project_time < last_pulse_time) ? (
+    // Loop/restart protection
+    last_pulse_time = project_time;
+    pulse_value = rand();
+  );
+) : (
+  last_pulse_time = project_time;
+  pulse_value = rand();
+);
+
+(project_time - last_pulse_time >= refresh_interval) ? (
+  last_pulse_time = project_time;
+  pulse_value = rand();
+);
+
+// ---------------------------
+// Pulse Modes
+// ---------------------------
+
+(pulse_mode == 0 || pulse_mode == 1) ? (
+  // Rhythmic sine pulse
+  pulse = sin(t * pulse_freq * 6.2832); // 2π
+) : (
+  // Random pulse value (0..1), map to range -1..1
+  pulse = pulse_value * 2 - 1;
+);
+
+pulse_amt = max(0, pulse_amt);
+
+pulse_mode == 0 || pulse_mode == 2 ? (
+  // Opacity pulse
+  fga = fga_base * (1 - pulse_amt * 0.5 + 0.5 * pulse_amt * (1 + pulse));
+) : (
+  // Scale pulse
+  scale = 1 + pulse * pulse_amt;
+);
+
+// Final size and draw
+scaled_size = base_size * scale;
+gfx_setfont(scaled_size * project_h, font);
+gfx_str_measure(text, txtw, txth);
+
+xt = xpos * (project_w - txtw);
+yt = ypos * (project_h - txth);
+
+gfx_set(txtr, txtg, txtb, fga);
+gfx_str_draw(text, xt, yt);
